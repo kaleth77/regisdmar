@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DMAR Admin - Registro</title>
+<style>
+body{font-family:Arial;background:#0f0f0f;color:#fff;margin:0}
+h2{padding:10px;color:#F2A6C6}
+h3{padding:0 10px;margin:10px 0 4px;color:#F2A6C6;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{border:1px solid #333;padding:5px;text-align:center}
+input,select{width:100%;background:#1a1a1a;color:#fff;border:none;padding:5px;border-radius:5px}
+img{width:45px;height:45px;border-radius:6px;margin:2px;background:#333;object-fit:cover}
+.galeria{padding:0 10px}
+.galeria img{width:60px;height:60px;cursor:pointer}
+button{padding:8px;border:none;color:#fff;border-radius:6px;font-weight:bold}
+.barra{position:sticky;top:0;z-index:999;background:#0f0f0f;padding:10px;border-bottom:1px solid #BE0155;display:flex;gap:5px}
+.enviado{background:#004d40!important;opacity:.8}
+.enviado input,.enviado select{pointer-events:none;color:#aaa}
+.contador{display:flex;gap:8px;padding:0 10px 10px;font-size:13px;font-weight:bold;flex-wrap:wrap}
+.contador span{background:#1a1a1a;border:1px solid #333;border-radius:6px;padding:6px 10px}
+</style>
+</head>
+<body>
+
+<div class="barra">
+<select id="mes">
+<option>Enero</option><option>Febrero</option><option>Marzo</option><option>Abril</option>
+<option>Mayo</option><option>Junio</option><option>Julio</option><option>Agosto</option>
+<option>Septiembre</option><option>Octubre</option><option>Noviembre</option><option>Diciembre</option>
+</select>
+<select id="anio"><option>2026</option><option>2027</option><option>2028</option><option>2029</option><option>2030</option></select>
+<button onclick="guardar()" style="background:#00c853;">💾 Guardar Nuevos</button>
+<button onclick="agregarFila()" style="background:#BE0155;">➕</button>
+<button onclick="borrarHistorial()" style="background:#f44336;">🗑️</button>
+</div>
+
+<h2>📈 REGISTRO DMAR</h2>
+
+<div class="contador">
+<span>🌸 Natura: <b id="cnt_natura">0</b></span>
+<span>👜 Maraldo: <b id="cnt_maraldo">0</b></span>
+<span>📦 Total: <b id="cnt_total">0</b></span>
+<span id="cnt_sin_box" style="display:none;">⚠️ Sin origen: <b id="cnt_sin">0</b></span>
+</div>
+
+<table id="tabla">
+<thead><tr><th>Img1</th><th>Img2</th><th>Nombre</th><th>Invertido</th><th>Venta</th><th>Cant</th><th>Origen</th><th>❌</th></tr></thead>
+<tbody></tbody>
+</table>
+
+<h2>🖼️ Catálogo</h2>
+<h3>Sandalias</h3><div id="cat_s" class="galeria"></div>
+<h3>Zapatos</h3><div id="cat_z" class="galeria"></div>
+<h3>Bolsos</h3><div id="cat_b" class="galeria"></div>
+<h3>Ropa</h3><div id="cat_r" class="galeria"></div>
+<h3>Otros</h3><div id="cat_o" class="galeria"></div>
+
+<script>
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbwkRp2sIrPA0uWLEn1MwJQp0oSWH0eogOr5fEKhUOyiBsywljVUNZbzBpSPJXitjcY4/exec";
+
+// OPCIONAL: link CSV publicado de tu Sheets de productos (Archivo > Compartir > Publicar en la web > CSV).
+// Columnas esperadas: imagen, nombre, precio, precioRebaja, precioCompra, precioCompraO
+// Si lo dejas vacío, solo se autocompleta el nombre con el nombre del archivo.
+const PRODUCTOS_CSV_URL="";
+
+let tabla=document.querySelector("#tabla tbody");
+let inputActivo=null, filaActiva=null;
+let productos={};
+
+function parsearCSV(texto){
+    const filas=texto.trim().split("\n");
+    const enc=filas[0].split(",").map(e=>e.trim());
+    return filas.slice(1).map(fila=>{
+        const v=[]; let act="", dentro=false;
+        for(let c of fila){
+            if(c==='"') dentro=!dentro;
+            else if(c===','&&!dentro){v.push(act.trim());act="";}
+            else act+=c;
+        }
+        v.push(act.trim());
+        const o={}; enc.forEach((e,i)=>o[e]=v[i]||""); return o;
+    });
+}
+
+function cargarProductos(){
+    if(!PRODUCTOS_CSV_URL) return;
+    fetch(PRODUCTOS_CSV_URL).then(r=>r.text()).then(csv=>{
+        parsearCSV(csv).forEach(p=>{ if(p.imagen) productos[p.imagen.trim()]=p; });
+    }).catch(()=>console.error("No se pudieron cargar los productos"));
+}
+
+function nombreArchivo(url){ return url ? url.split("/").pop().trim() : ""; }
+
+function formatearNumero(v){
+    v=String(v).replace(/\./g,"").replace(/\D/g,"");
+    return v.replace(/\B(?=(\d{3})+(?!\d))/g,".");
+}
+function limpiarNumero(v){ return Number(String(v).replace(/\./g,"")); }
+
+function tieneRebaja(p){
+    const base=parseInt(p.precio)||0, r=parseInt(p.precioRebaja);
+    return !isNaN(r) && r>0 && r<base;
+}
+
+function recalcularFila(f){
+    if(!Object.keys(productos).length) return;
+    const p1=productos[nombreArchivo(f.cells[0].children[0].value)];
+    const p2=productos[nombreArchivo(f.cells[1].children[0].value)];
+    if(!p1&&!p2) return;
+    const cant=Number(f.cells[5].children[0].value)||1;
+    let venta=0, compra=0, hayCompra=false;
+    [p1,p2].forEach(p=>{
+        if(!p) return;
+        const reb=tieneRebaja(p);
+        venta+=reb?parseInt(p.precioRebaja):(parseInt(p.precio)||0);
+        const c=reb?p.precioCompraO:p.precioCompra;
+        if(c&&!isNaN(parseInt(c))){compra+=parseInt(c);hayCompra=true;}
+    });
+    f.cells[4].children[0].value=formatearNumero(venta*cant);
+    if(hayCompra) f.cells[3].children[0].value=formatearNumero(compra*cant);
+}
+
+document.addEventListener("focusin",e=>{
+    if(e.target.classList.contains("imginput")){
+        inputActivo=e.target;
+        filaActiva=e.target.closest("tr");
+    }
+});
+
+function respaldar(){
+    let datos=[];
+    for(let f of tabla.rows){
+        datos.push({
+            i1:f.cells[0].children[0].value, i2:f.cells[1].children[0].value,
+            nom:f.cells[2].children[0].value, inv:f.cells[3].children[0].value,
+            ven:f.cells[4].children[0].value, can:f.cells[5].children[0].value,
+            ori:f.cells[6].children[0].value, est:f.classList.contains("enviado")
+        });
+    }
+    actualizarContador();
+    localStorage.setItem("dmar_historial_"+anio.value+"_"+mes.value, JSON.stringify(datos));
+}
+
+function actualizarContador(){
+    let nat=0, mar=0, sin=0;
+    for(let f of tabla.rows){
+        const nombre=f.cells[2].children[0].value, ori=f.cells[6].children[0].value;
+        if(ori==="Natura") nat++;
+        else if(ori==="Maraldo") mar++;
+        else if(nombre) sin++;
+    }
+    cnt_natura.textContent=nat; cnt_maraldo.textContent=mar;
+    cnt_total.textContent=nat+mar; cnt_sin.textContent=sin;
+    cnt_sin_box.style.display=sin>0?"":"none";
+}
+
+function cargar(){
+    const h=localStorage.getItem("dmar_historial_"+anio.value+"_"+mes.value);
+    tabla.innerHTML="";
+    if(h) JSON.parse(h).forEach(d=>agregarFila(d)); else agregarFila();
+    actualizarContador();
+}
+
+function agregarFila(d=null){
+    let f=tabla.insertRow();
+    if(d&&d.est) f.classList.add("enviado");
+    f.innerHTML=`
+        <td><input class="imginput" value="${d?d.i1:''}"><br><img src="${d?d.i1:''}"></td>
+        <td><input class="imginput" value="${d?d.i2:''}"><br><img src="${d?d.i2:''}"></td>
+        <td><input placeholder="Nombre" value="${d?d.nom:''}" oninput="respaldar()"></td>
+        <td><input class="numero" placeholder="Invertido" value="${d?d.inv:''}"></td>
+        <td><input class="numero" placeholder="Venta" value="${d?d.ven:''}"></td>
+        <td><input type="number" value="${d?d.can:'1'}"></td>
+        <td>
+            <select onchange="respaldar()">
+                <option value="" ${(!d||!d.ori)?'selected':''}>--</option>
+                <option value="Natura" ${(d&&d.ori==='Natura')?'selected':''}>Natura</option>
+                <option value="Maraldo" ${(d&&d.ori==='Maraldo')?'selected':''}>Maraldo</option>
+            </select>
+        </td>
+        <td><button onclick="eliminarFila(this)" style="background:#f44336;">🗑️</button></td>
+    `;
+    f.querySelectorAll(".imginput").forEach((inp,i)=>{
+        inp.oninput=e=>{
+            f.querySelectorAll("img")[i].src=e.target.value;
+            recalcularFila(f);
+            respaldar();
+        };
+    });
+    f.querySelectorAll(".numero").forEach(inp=>{
+        inp.oninput=e=>{ e.target.value=formatearNumero(e.target.value); respaldar(); };
+    });
+    f.cells[5].children[0].addEventListener("input",()=>{ recalcularFila(f); respaldar(); });
+}
+
+function guardar(){
+    let filas=[], origenes=[], nuevas=[], sinOrigen=[];
+    for(let f of tabla.rows){
+        if(f.classList.contains("enviado")) continue;
+        const nombre=f.cells[2].children[0].value;
+        if(!nombre) continue;
+        const origen=f.cells[6].children[0].value;
+        if(!origen){ sinOrigen.push(nombre); continue; }
+
+        const inv=limpiarNumero(f.cells[3].children[0].value);
+        const ven=limpiarNumero(f.cells[4].children[0].value);
+        const cant=Number(f.cells[5].children[0].value)||1;
+        const totalInv=inv*cant, totalVen=ven*cant, ganancia=totalVen-totalInv;
+        const pct=totalVen===0?0:((ganancia/totalVen)*100).toFixed(1);
+
+        // Orden de columnas: Img1, Img2, Nombre, Mes, Invertido, Vendido, Ganancia, Porcentaje
+        filas.push([
+            f.cells[0].children[0].value, f.cells[1].children[0].value,
+            nombre, mes.value, totalInv, totalVen, ganancia, pct+"%"
+        ]);
+        origenes.push(origen);
+        nuevas.push(f);
+    }
+    if(sinOrigen.length>0) return alert("Falta elegir Natura o Maraldo en: "+sinOrigen.join(", "));
+    if(filas.length===0) return alert("No hay nada nuevo");
+
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",body:JSON.stringify({datos:filas,origenes:origenes})})
+    .then(()=>{
+        alert("¡Guardado en Sheets! 🔥");
+        nuevas.forEach(f=>f.classList.add("enviado"));
+        respaldar();
+    })
+    .catch(()=>alert("Error ❌"));
+}
+
+function eliminarFila(btn){
+    if(confirm("¿Eliminar esta compra?")){
+        btn.closest("tr").remove();
+        if(tabla.rows.length===0) agregarFila();
+        respaldar();
+    }
+}
+
+function borrarHistorial(){
+    if(confirm("¿Borrar todo "+mes.value+" "+anio.value+"?")){
+        localStorage.removeItem("dmar_historial_"+anio.value+"_"+mes.value);
+        tabla.innerHTML="";
+        agregarFila();
+        actualizarContador();
+    }
+}
+
+// Catálogo desde la carpeta img del repo
+fetch("https://api.github.com/repos/kaleth77/dmar/contents/img")
+.then(r=>r.json()).then(data=>{
+    data.forEach(file=>{
+        if(file.type!=="file") return;
+        if(/^(logo|qr|llave|recordatorio)/i.test(file.name)) return;
+        const url=file.download_url;
+        const img=document.createElement("img");
+        img.src=url;
+        img.onclick=()=>{
+            if(!inputActivo) return;
+            inputActivo.value=url;
+            inputActivo.dispatchEvent(new Event("input"));
+            if(filaActiva){
+                const inpNombre=filaActiva.cells[2].children[0];
+                if(!inpNombre.value){
+                    const p=productos[file.name.trim()];
+                    inpNombre.value=p?p.nombre:file.name.replace(/\.[^.]+$/,"");
+                }
+                recalcularFila(filaActiva);
+                respaldar();
+            }
+        };
+        const n=file.name.toLowerCase();
+        let cat="cat_o";
+        if(n.startsWith("sandalia")) cat="cat_s";
+        else if(n.startsWith("zapato")) cat="cat_z";
+        else if(n.startsWith("bolso")) cat="cat_b";
+        else if(n.startsWith("ropa")) cat="cat_r";
+        document.getElementById(cat).appendChild(img);
+    });
+});
+
+const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+mes.value=meses[new Date().getMonth()];
+anio.value=new Date().getFullYear();
+mes.addEventListener("change",cargar);
+anio.addEventListener("change",cargar);
+
+cargarProductos();
+cargar();
+</script>
+</body>
+</html>
