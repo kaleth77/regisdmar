@@ -46,7 +46,7 @@ button{padding:8px;border:none;color:#fff;border-radius:6px;font-weight:bold}
 </div>
 
 <table id="tabla">
-<thead><tr><th>Img1</th><th>Img2</th><th>Nombre</th><th>Invertido</th><th>Venta</th><th>Cant</th><th>Origen</th><th>❌</th></tr></thead>
+<thead><tr><th>Img1</th><th>Img2</th><th>Nombre</th><th>Invertido</th><th>Venta</th><th>Cant</th><th>Origen</th><th>Talla</th><th>❌</th></tr></thead>
 <tbody></tbody>
 </table>
 
@@ -144,7 +144,7 @@ function respaldar(){
             i1:f.cells[0].children[0].value, i2:f.cells[1].children[0].value,
             nom:f.cells[2].children[0].value, inv:f.cells[3].children[0].value,
             ven:f.cells[4].children[0].value, can:f.cells[5].children[0].value,
-            ori:f.cells[6].children[0].value, est:f.classList.contains("enviado")
+            ori:f.cells[6].children[0].value, tal:f.cells[7].children[0].value, est:f.classList.contains("enviado")
         });
     }
     actualizarContador();
@@ -188,6 +188,7 @@ function agregarFila(d=null){
                 <option value="Maraldo" ${(d&&d.ori==='Maraldo')?'selected':''}>Maraldo</option>
             </select>
         </td>
+        <td><input placeholder="Talla" value="${d&&d.tal?d.tal:''}" oninput="respaldar()"></td>
         <td><button onclick="eliminarFila(this)" style="background:#f44336;">🗑️</button></td>
     `;
     f.querySelectorAll(".imginput").forEach((inp,i)=>{
@@ -204,7 +205,7 @@ function agregarFila(d=null){
 }
 
 function guardar(){
-    let filas=[], origenes=[], nuevas=[], sinOrigen=[];
+    let filas=[], origenes=[], tallas=[], nuevas=[], sinOrigen=[];
     for(let f of tabla.rows){
         if(f.classList.contains("enviado")) continue;
         const nombre=f.cells[2].children[0].value;
@@ -224,12 +225,13 @@ function guardar(){
             nombre, mes.value, totalInv, totalVen, ganancia, pct+"%"
         ]);
         origenes.push(origen);
+        tallas.push(f.cells[7].children[0].value);
         nuevas.push(f);
     }
     if(sinOrigen.length>0) return alert("Falta elegir Natura o Maraldo en: "+sinOrigen.join(", "));
     if(filas.length===0) return alert("No hay nada nuevo");
 
-    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",body:JSON.stringify({datos:filas,origenes:origenes})})
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",body:JSON.stringify({datos:filas,origenes:origenes,tallas:tallas})})
     .then(()=>{
         alert("¡Guardado en Sheets! 🔥");
         nuevas.forEach(f=>f.classList.add("enviado"));
