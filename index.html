@@ -60,34 +60,41 @@ button{padding:8px;border:none;color:#fff;border-radius:6px;font-weight:bold}
 <script>
 const SCRIPT_URL="https://script.google.com/macros/s/AKfycbwkRp2sIrPA0uWLEn1MwJQp0oSWH0eogOr5fEKhUOyiBsywljVUNZbzBpSPJXitjcY4/exec";
 
-// OPCIONAL: link CSV publicado de tu Sheets de productos (Archivo > Compartir > Publicar en la web > CSV).
-// Columnas esperadas: imagen, nombre, precio, precioRebaja, precioCompra, precioCompraO
-// Si lo dejas vacío, solo se autocompleta el nombre con el nombre del archivo.
-const PRODUCTOS_CSV_URL="";
+// Sheets "Dmar productos" (debe estar compartido como "Cualquier persona con el enlace: Lector")
+const PRODUCTOS_CSV_URL="https://docs.google.com/spreadsheets/d/1-B-029gOzXer9R9NVHJoZEmaFG-k-OLwb-hCQ99RtXk/gviz/tq?tqx=out:csv&gid=0";
 
 let tabla=document.querySelector("#tabla tbody");
 let inputActivo=null, filaActiva=null;
 let productos={};
 
 function parsearCSV(texto){
-    const filas=texto.trim().split("\n");
-    const enc=filas[0].split(",").map(e=>e.trim());
-    return filas.slice(1).map(fila=>{
-        const v=[]; let act="", dentro=false;
-        for(let c of fila){
-            if(c==='"') dentro=!dentro;
-            else if(c===','&&!dentro){v.push(act.trim());act="";}
+    const filas=[]; let fila=[], act="", dentro=false;
+    for(let i=0;i<texto.length;i++){
+        const c=texto[i];
+        if(dentro){
+            if(c==='"'){ if(texto[i+1]==='"'){act+='"';i++;} else dentro=false; }
             else act+=c;
-        }
-        v.push(act.trim());
-        const o={}; enc.forEach((e,i)=>o[e]=v[i]||""); return o;
-    });
+        }else if(c==='"') dentro=true;
+        else if(c===','){fila.push(act.trim());act="";}
+        else if(c==='\n'||c==='\r'){
+            if(c==='\r'&&texto[i+1]==='\n') i++;
+            fila.push(act.trim());act="";filas.push(fila);fila=[];
+        }else act+=c;
+    }
+    if(act!==""||fila.length){fila.push(act.trim());filas.push(fila);}
+    const enc=filas[0].map(e=>e.trim());
+    return filas.slice(1).map(v=>{const o={};enc.forEach((e,i)=>o[e]=v[i]||"");return o;});
 }
 
 function cargarProductos(){
     if(!PRODUCTOS_CSV_URL) return;
     fetch(PRODUCTOS_CSV_URL).then(r=>r.text()).then(csv=>{
-        parsearCSV(csv).forEach(p=>{ if(p.imagen) productos[p.imagen.trim()]=p; });
+        parsearCSV(csv).forEach(p=>{
+            if(!p.imagen) return;
+            const kReb=Object.keys(p).find(k=>k.toLowerCase().startsWith("precioreba"));
+            p.precioRebaja=kReb?p[kReb]:"";
+            productos[p.imagen.trim().toLowerCase()]=p;
+        });
     }).catch(()=>console.error("No se pudieron cargar los productos"));
 }
 
@@ -99,27 +106,28 @@ function formatearNumero(v){
 }
 function limpiarNumero(v){ return Number(String(v).replace(/\./g,"")); }
 
+const num=s=>parseInt(String(s||"").replace(/\D/g,""))||0;
+
 function tieneRebaja(p){
-    const base=parseInt(p.precio)||0, r=parseInt(p.precioRebaja);
-    return !isNaN(r) && r>0 && r<base;
+    const r=num(p.precioRebaja);
+    return r>0 && r<num(p.precio);
 }
 
 function recalcularFila(f){
     if(!Object.keys(productos).length) return;
-    const p1=productos[nombreArchivo(f.cells[0].children[0].value)];
-    const p2=productos[nombreArchivo(f.cells[1].children[0].value)];
+    const p1=productos[nombreArchivo(f.cells[0].children[0].value).toLowerCase()];
+    const p2=productos[nombreArchivo(f.cells[1].children[0].value).toLowerCase()];
     if(!p1&&!p2) return;
     const cant=Number(f.cells[5].children[0].value)||1;
-    let venta=0, compra=0, hayCompra=false;
+    let venta=0, compra=0;
     [p1,p2].forEach(p=>{
         if(!p) return;
         const reb=tieneRebaja(p);
-        venta+=reb?parseInt(p.precioRebaja):(parseInt(p.precio)||0);
-        const c=reb?p.precioCompraO:p.precioCompra;
-        if(c&&!isNaN(parseInt(c))){compra+=parseInt(c);hayCompra=true;}
+        venta+=reb?num(p.precioRebaja):num(p.precio);
+        compra+=(reb?num(p.precioCompraO):0)||num(p.precioCompra);
     });
     f.cells[4].children[0].value=formatearNumero(venta*cant);
-    if(hayCompra) f.cells[3].children[0].value=formatearNumero(compra*cant);
+    if(compra>0) f.cells[3].children[0].value=formatearNumero(compra*cant);
 }
 
 document.addEventListener("focusin",e=>{
@@ -263,7 +271,7 @@ fetch("https://api.github.com/repos/kaleth77/dmar/contents/img")
             if(filaActiva){
                 const inpNombre=filaActiva.cells[2].children[0];
                 if(!inpNombre.value){
-                    const p=productos[file.name.trim()];
+                    const p=productos[file.name.trim().toLowerCase()];
                     inpNombre.value=p?p.nombre:file.name.replace(/\.[^.]+$/,"");
                 }
                 recalcularFila(filaActiva);
